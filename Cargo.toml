@@ -15,4 +15,4 @@ name="sreply"
 path="src/sreply/main.rs"
 
 [dependencies]
-
+regex = "1"

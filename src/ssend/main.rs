@@ -1,18 +1,26 @@
 #![allow(non_snake_case)]
 use std::net::UdpSocket;
 use std::io::{self, BufRead, Write};
+use regex::Regex;
 use std::thread;
+use std::vec;
+
+struct Config {
+    address: String,
+    verbose: bool,
+    hex: bool
+}
 
 static SIMPLE_UDP_SENDER_USAGE: &'static str = 
-"usage:
-    sudp [-ovh] <ipv4-address> [message]
+"[-vh] <ipv4-address>
 
-    -o    run once
     -v    verbose
+    -x    \\xNN hex representation
     -h    show help";
 
 fn usage() {
-    println!("{}", SIMPLE_UDP_SENDER_USAGE);
+    let args: Vec<String> = std::env::args().collect();
+    println!("usage: \n    {} {}", args[0], SIMPLE_UDP_SENDER_USAGE);
 }
 
 fn printPrefix() {
@@ -20,18 +28,38 @@ fn printPrefix() {
     io::stdout().flush().unwrap();
 }
 
-fn run() {
+// TODO
+fn getInput(hex: bool, ss: &str) -> Vec<u8> {
+    let mut ans = vec![];
+    for c in ss.bytes() {
+        if hex {
+            ans.push(c);
+        } else {
+            ans.push(c);
+        }
+    }
+    return ans;
+}
+
+fn run(config: &Config) {
     let sock = UdpSocket::bind("0.0.0.0:0").unwrap();
-    sock.connect("127.0.0.53:53").unwrap();
+    sock.connect(&config.address).unwrap();
 
     let recv_sock = sock.try_clone().unwrap();
+    let c1 = Config {
+        verbose: config.verbose,
+        hex: config.hex,
+        address: String::from(config.address.as_str())
+    };
     let r = thread::Builder::new().name(String::from("reciever")).spawn(move || {
         let mut buf = [0; 16*16];
         loop {
             match recv_sock.recv(&mut buf) {
                 Ok(size) => {
-                    let reply = String::from_utf8_lossy(&buf[0..size]);
-                    println!("reply: {}", reply);
+                    let reply = &buf[0..size];
+                    if c1.verbose {
+                        println!("reply from {}: {:?}", c1.address, reply);
+                    }
                 },
                 Err(e) => {
                     println!("{}", e);
@@ -56,7 +84,40 @@ fn run() {
 }
 
 fn main() {
-    usage();
-    run();
+    let mut args: Vec<String> = std::env::args().collect();
+    args.remove(0);
+    let mut i = 0;
+    let mut config: Config = Config {
+        address: String::from(""),
+        verbose: false,
+            hex: false,
+    };
+    let valid_ipv4_port = Regex::new(r"^([0-9]{1,3}.){3}[0-9]{1,3}:[0-9]{1,5}$").unwrap();
+    while i < args.len() {
+        let s = args[i].as_str();
+        match s {
+            "-v" => {
+                config.verbose = true;
+            },
+            "-h" => {
+                usage();
+                std::process::exit(0);
+            }
+            _ => {
+                if valid_ipv4_port.is_match(s) && i == args.len() -1 {
+                    config.address = String::from(s);
+                } else {
+                    usage();
+                    std::process::exit(-1);
+                }
+            }
+        }
+        i += 1;
+    }
+    if config.address.len() == 0 {
+        usage();
+        std::process::exit(-2);
+    }
+    run(&config);
 }
 

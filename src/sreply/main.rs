@@ -1,62 +1,79 @@
 #![allow(non_snake_case)]
 use std::net::UdpSocket;
-use std::io::{self, BufRead, Write};
-use std::thread;
+use regex::Regex;
 
 static SIMPLE_UDP_SENDER_USAGE: &'static str = 
-"usage:
-    sudp [-ovh] <ipv4-address> [message]
+"[-vh] <ipv4-address>
 
-    -o    run once
     -v    verbose
-    -h    show help";
+    -h    show help
+
+    <ipv4-address> has format likes '127.0.0.1:8080'";
+
+struct Config {
+    sockaddr: String,
+    verbose:  bool
+}
 
 fn usage() {
-    println!("{}", SIMPLE_UDP_SENDER_USAGE);
+    let args: Vec<String> = std::env::args().collect();
+    println!("usage:\n    {} {}", args[0], SIMPLE_UDP_SENDER_USAGE);
 }
 
-fn printPrefix() {
-    print!("> ");
-    io::stdout().flush().unwrap();
-}
+fn run(config: &Config) {
+    let sock = UdpSocket::bind(&config.sockaddr).unwrap();
 
-fn run() {
-    let sock = UdpSocket::bind("0.0.0.0:0").unwrap();
-    sock.connect("127.0.0.53:53").unwrap();
-
-    let recv_sock = sock.try_clone().unwrap();
-    let r = thread::Builder::new().name(String::from("reciever")).spawn(move || {
-        let mut buf = [0; 16*16];
-        loop {
-            match recv_sock.recv(&mut buf) {
-                Ok(size) => {
-                    let reply = String::from_utf8_lossy(&buf[0..size]);
-                    println!("reply: {}", reply);
-                },
-                Err(e) => {
-                    println!("{}", e);
-                    std::process::exit(-1);
+    let mut buf = [0; 16*16];
+    loop {
+        match sock.recv_from(&mut buf) {
+            Ok((size, addr)) => {
+                sock.send_to(&buf[0..size], addr).unwrap();
+                if config.verbose {
+                    println!("{} -> {}: {:?}", addr, config.sockaddr, &buf[0..size]);
                 }
-            };
-        }
-    });
-
-    let s = thread::Builder::new().name(String::from("sender")).spawn(move || {
-        let mut buf = String::new();
-        let stdin = io::stdin();
-        loop {
-            buf.clear();
-            printPrefix();
-            stdin.lock().read_line(&mut buf).unwrap();
-            sock.send(buf.as_bytes()).unwrap();
-        }
-    });
-    r.unwrap().join().unwrap();
-    s.unwrap().join().unwrap();
+            },
+            Err(e) => {
+                println!("{}", e);
+                std::process::exit(-1);
+            }
+        };
+    }
 }
 
 fn main() {
-    usage();
-    run();
+    let mut args: Vec<String> = std::env::args().collect();
+    args.remove(0);
+    let mut i = 0;
+    let mut config: Config = Config {
+        sockaddr: String::from(""),
+        verbose: false
+    };
+    let valid_ipv4_port = Regex::new(r"^([0-9]{1,3}.){3}[0-9]{1,3}:[0-9]{1,5}$").unwrap();
+    while i < args.len() {
+        let s = args[i].as_str();
+        match s {
+            "-v" => {
+                config.verbose = true;
+            },
+            "-h" => {
+                usage();
+                std::process::exit(0);
+            }
+            _ => {
+                if valid_ipv4_port.is_match(s) && i == args.len() -1 {
+                    config.sockaddr = String::from(s);
+                } else {
+                    usage();
+                    std::process::exit(-1);
+                }
+            }
+        }
+        i += 1;
+    }
+    if config.sockaddr.len() == 0 {
+        usage();
+        std::process::exit(-2);
+    }
+    run(&config);
 }
 
