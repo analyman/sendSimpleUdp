@@ -23,7 +23,7 @@ fn usage() {
 fn run(config: &Config) {
     let sock = UdpSocket::bind(&config.sockaddr).unwrap();
 
-    let mut buf = [0; 16*16];
+    let mut buf = [0; 1<<16];
     loop {
         match sock.recv_from(&mut buf) {
             Ok((size, addr)) => {
